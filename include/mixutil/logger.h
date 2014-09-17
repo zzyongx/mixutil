@@ -14,17 +14,17 @@
 #include <fcntl.h>
 #include <sys/time.h>
 
-#include <util.h>
-#include <cexception.h>
+#include <mixutil/util.h>
+#include <mixutil/cexception.h>
 
 namespace MixUtil {
 
 class Logger {
  public:
   Logger(const std::string &file, time_t *now = 0) : file_(file), now_(now) {
-    handler_ = open(Util::cs(file_), O_WRONLY | O_APPEND | O_CREAT,
+    handler_ = open(file_.c_str(), O_WRONLY | O_APPEND | O_CREAT,
                     S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH); 
-    if (handler_ == -1) throw ExceptionC("Logger::open", errno);
+    if (handler_ == -1) throw CException("Logger::open", errno);
     reopen_  = false;
     verbose_ = false;
   }
@@ -39,7 +39,7 @@ class Logger {
 
   bool log(uint8_t level, int eno, const char *fmt, ... ) {
     if (reopen_) {
-      int fd = open(Util::cs(file_), O_WRONLY | O_APPEND | O_CREAT,
+      int fd = open(file_.c_str(), O_WRONLY | O_APPEND | O_CREAT,
                     S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
       if (fd != -1) {
         close(handler_);
@@ -110,11 +110,11 @@ class Logger {
 
 #else
 
-extern std::auto_ptr<Util::Logger> logger;
+extern std::auto_ptr<MixUtil::Logger> logger;
 
-# define log_fatal(eno, fmt, args...) logger->log(Util::Logger::LOG_FATAL, eno, fmt, ##args)
-# define log_error(eno, fmt, args...) logger->log(Util::Logger::LOG_ERROR, eno, fmt, ##args)
-# define log_debug(eno, fmt, args...) logger->log(Util::Logger::LOG_DEBUG, eno, fmt, ##args)
+# define log_fatal(eno, fmt, args...) logger->log(MixUtil::Logger::LOG_FATAL, eno, fmt, ##args)
+# define log_error(eno, fmt, args...) logger->log(MixUtil::Logger::LOG_ERROR, eno, fmt, ##args)
+# define log_debug(eno, fmt, args...) logger->log(MixUtil::Logger::LOG_DEBUG, eno, fmt, ##args)
 
 #endif
 

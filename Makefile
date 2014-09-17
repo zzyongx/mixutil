@@ -31,12 +31,23 @@ all: configure build
 configure:
 	$(MKDIR) -p build
 
-OBJS    = build/util.o
+OBJS    = build/util.o build/crc.o
 .PHONY: build
 build: $(OBJS)
 	$(AR) -rcs ./build/libmixutil.a $(OBJS) $(LDFLAGS)
 
 build/%.o: src/%.cc
+	$(CXX) -o $@ $(WARN) $(CXXWARN) $(CFLAGS) $(PREDEF) -c $<
+
+.PHONY: test
+TEST_OBJS = build/util_test.o build/logger_test.o
+TEST_LDFLAGS = -lgtest -lgtest_main -lpthread
+
+test: $(TEST_OBJS) $(OBJS)
+	$(CXX) -o ./build/runtest $(TEST_OBJS) $(OBJS) $(TEST_LDFLAGS)
+	./build/runtest
+
+build/%.o: test/%.cc
 	$(CXX) -o $@ $(WARN) $(CXXWARN) $(CFLAGS) $(PREDEF) -c $<
 
 .PHONY: install

@@ -44,6 +44,8 @@ inline int milliSleep(int ms)
   return nanosleep(&req, 0);
 }
 
+std::string random(size_t len = 8);
+
 template <typename T>
 struct NullJoinWrap {
   const std::string &operator()(const T &x) const {
