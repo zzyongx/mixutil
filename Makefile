@@ -52,7 +52,7 @@ build/%.o: src/%.c
 .PHONY: test
 TEST_OBJS = build/util_test.o build/logger_test.o build/index_hash_test.o
 TEST_LDFLAGS = -lgtest -lgtest_main -lpthread
-TEST_CXXFLAGS = -Wno-deprecated
+TEST_CXXFLAGS = -std=c++0x
 
 test: configtest $(TEST_OBJS) $(OBJS)
 	$(CXX) -o ./build/runtest $(TEST_OBJS) $(OBJS) $(TEST_LDFLAGS)

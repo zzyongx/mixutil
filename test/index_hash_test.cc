@@ -1,5 +1,5 @@
 #include <iostream>
-#include <ext/hash_map>
+#include <unordered_map>
 #include <ctime>
 #include <gtest/gtest.h>
 #include <mixutil/index_hash.h>
@@ -87,7 +87,7 @@ TEST(IndexHashTest, performance) {
   }
 
   time_t start = time(0);
-  __gnu_cxx::hash_map<int, int> hash_map;
+  std::unordered_map<int, int> hash_map;
   for (int i = 0; i < N; ++i) {
     hash_map[array[i]] = array[i];
   }
