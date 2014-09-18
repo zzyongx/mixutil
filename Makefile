@@ -6,19 +6,26 @@ AR      = ar
 MKDIR   = mkdir
 INSTALL = install
 
-CFLAGS  = -I./include
 PREDEF  = -D_FILE_OFFSET_BITS=64
-CXXWARN = -Wno-invalid-offsetof
-LDFLAGS = 
+CFLAGS   = -I./include -std=c99
+CXXFLAGS = -I./include
+CXXWARN  = -Wno-invalid-offsetof
+LDFLAGS =
+
+ifeq ($(INDEX_HASH_DEBUG), 1)
+	PREDEF += -DINDEX_HASH_DEBUG
+endif
 
 ifeq ($(DEBUG), 1)
-    CFLAGS += -O0 -g
-    WARN   += -Wall -Wextra -Wno-comment -Wformat -Wimplicit \
-			  -Wparentheses -Wswitch -Wunused
+	CFLAGS   += -O0 -g
+  CXXFLAGS += -O0 -g
+  WARN     += -Wall -Wextra -Wno-comment -Wformat -Wimplicit \
+			        -Wparentheses -Wswitch -Wunused
 else
-    CFLAGS += -O2 -g
-    WARN   += -Wall -Wextra -Wno-comment -Wformat -Wimplicit \
-			  -Wparentheses -Wswitch -Wuninitialized -Wunused
+  CFLAGS   += -O2 -g
+  CXXFLAGS += -O2 -g
+  WARN     += -Wall -Wextra -Wno-comment -Wformat -Wimplicit \
+	     		    -Wparentheses -Wswitch -Wuninitialized -Wunused
 endif
 
 ifndef ($(INSTALLDIR))
@@ -31,24 +38,31 @@ all: configure build
 configure:
 	$(MKDIR) -p build
 
-OBJS    = build/util.o build/crc.o
+OBJS    = build/util.o build/crc.o build/index_hash.o
 .PHONY: build
 build: $(OBJS)
 	$(AR) -rcs ./build/libmixutil.a $(OBJS) $(LDFLAGS)
 
 build/%.o: src/%.cc
-	$(CXX) -o $@ $(WARN) $(CXXWARN) $(CFLAGS) $(PREDEF) -c $<
+	$(CXX) -o $@ $(WARN) $(CXXWARN) $(CXXFLAGS) $(PREDEF) -c $<
+
+build/%.o: src/%.c
+	$(CC) -o $@ $(WARN) $(CFLAGS) $(PREDEF) -c $<
 
 .PHONY: test
-TEST_OBJS = build/util_test.o build/logger_test.o
+TEST_OBJS = build/util_test.o build/logger_test.o build/index_hash_test.o
 TEST_LDFLAGS = -lgtest -lgtest_main -lpthread
+TEST_CXXFLAGS = -Wno-deprecated
 
-test: $(TEST_OBJS) $(OBJS)
+test: configtest $(TEST_OBJS) $(OBJS)
 	$(CXX) -o ./build/runtest $(TEST_OBJS) $(OBJS) $(TEST_LDFLAGS)
 	./build/runtest
 
 build/%.o: test/%.cc
-	$(CXX) -o $@ $(WARN) $(CXXWARN) $(CFLAGS) $(PREDEF) -c $<
+	$(CXX) -o $@ $(WARN) $(CXXWARN) $(CXXFLAGS) $(PREDEF) $(TEST_CXXFLAGS) -c $<
+
+configtest:
+	$(eval PREDEF += -DUNIT_TEST)
 
 .PHONY: install
 install:
