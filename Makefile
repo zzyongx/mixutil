@@ -6,11 +6,11 @@ AR      = ar
 MKDIR   = mkdir
 INSTALL = install
 
-PREDEF  = -D_FILE_OFFSET_BITS=64
+PREDEF   = -D_FILE_OFFSET_BITS=64
 CFLAGS   = -I./include -std=c99
 CXXFLAGS = -I./include
 CXXWARN  = -Wno-invalid-offsetof
-LDFLAGS =
+LDFLAGS  = -lpth -ldl
 
 ifeq ($(INDEX_HASH_DEBUG), 1)
 	PREDEF += -DINDEX_HASH_DEBUG
@@ -39,9 +39,14 @@ configure:
 	$(MKDIR) -p build
 
 OBJS    = build/util.o build/crc.o build/index_hash.o
+NBNET_OBJS = build/nbnet.o build/index_hash.o
+
 .PHONY: build
 build: $(OBJS)
-	$(AR) -rcs ./build/libmixutil.a $(OBJS) $(LDFLAGS)
+	$(AR) -rcs ./build/libmixutil.a $(OBJS)
+
+build-nbnet: $(NBNET_OBJS)
+	$(CXX) -shared -o ./build/libnbnet.so $(NBNET_OBJS) $(LDFLAGS)
 
 build/%.o: src/%.cc
 	$(CXX) -o $@ $(WARN) $(CXXWARN) $(CXXFLAGS) $(PREDEF) -c $<
@@ -51,12 +56,16 @@ build/%.o: src/%.c
 
 .PHONY: test
 TEST_OBJS = build/util_test.o build/logger_test.o build/index_hash_test.o
-TEST_LDFLAGS = -lgtest -lgtest_main -lpthread
+TEST_LDFLAGS = -lgtest -lgtest_main -lpthread -lmysqlclient -L/usr/lib/mysql -lnbnet -L./build
 TEST_CXXFLAGS = -std=c++0x
 
-test: configtest $(TEST_OBJS) $(OBJS)
+build-test: configtest $(TEST_OBJS) $(OBJS) build/nbnet_test.o build-nbnet
 	$(CXX) -o ./build/runtest $(TEST_OBJS) $(OBJS) $(TEST_LDFLAGS)
+	$(CXX) -o ./build/nbnet_test build/nbnet_test.o $(OBJS) $(LDFLAGS) $(TEST_LDFLAGS)
+
+test: buildtest
 	./build/runtest
+	LD_PRELOAD=./build/libnbnet.so ./build/nbnet_test
 
 build/%.o: test/%.cc
 	$(CXX) -o $@ $(WARN) $(CXXWARN) $(CXXFLAGS) $(PREDEF) $(TEST_CXXFLAGS) -c $<
@@ -68,7 +77,7 @@ configtest:
 install:
 	$(INSTALL) -D build/libmixutil.a   $(DESTDIR)$(INSTALLDIR)/lib/libmixutil.a
 	$(MKDIR)   -p $(DESTDIR)$(INSTALLDIR)/include/mixutil
-	$(INSTALL) -m 0644 include/*.h     $(DESTDIR)$(INSTALLDIR)/include/mixutil/
+	$(INSTALL) -m 0644 include/mixutil/*.h $(DESTDIR)$(INSTALLDIR)/include/mixutil/
 
 .PHONY: clean
 clean:

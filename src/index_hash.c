@@ -116,7 +116,7 @@ void index_hash_del(index_hash_t *hash, uint32_t key)
       hash->slot[idx].key = NIL;
       return;
     } else {
-      NEXT_SLOT(idx, hash->nslot);
+      idx = NEXT_SLOT(idx, hash->nslot);
     }
   }
 }
@@ -125,6 +125,17 @@ void index_hash_destroy(index_hash_t *hash)
 {
   free(hash->slot);
   free(hash);
+}
+
+uint32_t *index_hash_keys(index_hash_t *hash, uint32_t *keys)
+{
+  uint32_t n = 0;
+  for (uint32_t i = 0; i < hash->nslot; ++i) {
+    if (hash->slot[i].key != NIL) {
+      keys[n++] = hash->slot[i].key;
+    }
+  }
+  return keys;
 }
 
 index_hash_ite index_hash_begin(index_hash_t *hash)
