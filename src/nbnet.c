@@ -1,7 +1,10 @@
+/* author: iamzhengzhiyong@gmail.com
+ */
 #define _GNU_SOURCE
 
 #include <stdio.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 #include <poll.h>
 #include <dlfcn.h>
@@ -10,33 +13,58 @@
 #include <sys/ioctl.h>
 #include <sys/uio.h>
 #include <unistd.h>
+#include <mixutil/nbnet.h>
 
-#include <pth.h>
-#include <mixutil/index_hash.h>
+#define self()    pth_self()
 
-#define yield() pth_yield(NULL)
-#define self()  pth_self()
+#define sysfd(ptr, fd)            \
+  ((nbnet_mode == NBNET_BLOCK) || \
+   ((ptr = (void *)index_hash_get(nbnet_fdtbl, fd)) == (void *)INDEX_HASH_VAL_NIL))
 
-#define sysfd(fd)       \
-  (nbnet_block_flag ||  \
-   index_hash_get(nbnet_fdtbl, fd) == INDEX_HASH_VAL_NIL)
+#define yield(ptr, ev) do {                \
+  if (NBNET_AUTO_NONBLOCK == nbnet_mode) { \
+    pth_yield(NULL);                       \
+  } else {                                 \
+    ptr->event |= (ev);                    \
+    pth_yield(NULL);                       \
+  }                                        \
+} while (0)
+
+#define yield_read(ptr) yield(ptr, NBNET_EVENT_READ)
+#define yield_write(ptr) yield(ptr, NBNET_EVENT_WRITE)
 
 index_hash_t *nbnet_fdtbl = 0;
-int nbnet_fds_size()
+typedef struct {
+  uint32_t event;
+  pth_t    tid;
+} nbnet_io_event_part;
+
+size_t nbnet_events_size()
 {
   return index_hash_size(nbnet_fdtbl);
 }
 
-int *nbnet_fds(int *fds)
+struct nbnet_io_event *nbnet_events(struct nbnet_io_event *events)
 {
-  return (int *) index_hash_keys(nbnet_fdtbl, (uint32_t *)fds);
+  uint32_t i = 0;
+  for (index_hash_ite ite = index_hash_begin(nbnet_fdtbl);
+       ite != index_hash_end(nbnet_fdtbl);
+       ite = index_hash_next(nbnet_fdtbl, ite)) {
+    events[i].fd = index_hash_ite_key(nbnet_fdtbl, ite);
+    nbnet_io_event_part *val =
+      (nbnet_io_event_part *) index_hash_ite_val(nbnet_fdtbl, ite);
+    events[i].event = val->event;
+    events[i].tid   = val->tid;
+    i++;
+  }
+  return events; 
 }
 
-int nbnet_block_flag = 0;
-int nbnet_block_ctl(int block)
+int nbnet_mode = NBNET_AUTO_NONBLOCK;
+int nbnet_mode_ctl(int mode)
 {
-  int old = nbnet_block_flag;
-  nbnet_block_flag = block;
+  int old = nbnet_mode;
+  nbnet_mode = mode;
   return old;
 }
 
@@ -98,13 +126,32 @@ int nbnet_init()
   };
 
   return 1;
-}  
+}
+
+/* BSDs and Linux return 0, and set a pending error in err
+ * Solaris return -1, and sets errno */
+#define CONNECT_FINISH(sockfd)  do {  \
+  int err = 0;                        \
+  socklen_t len = sizeof(err);        \
+  if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, (void *) &err, &len) == -1) { \
+    err = errno;                      \
+  }                                   \
+  if (err) {                          \
+    errno = err;                      \
+    return -1;                        \
+  } else {                            \
+    return 0;                         \
+  }                                   \
+} while (0)
 
 int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 {
-  if (nbnet_block_flag == 0) {
+  nbnet_io_event_part *ptr = 0;  
+  if (nbnet_mode != NBNET_BLOCK) {
     int flag = 1;
-    index_hash_put(nbnet_fdtbl, sockfd, (uintptr_t) self());
+    ptr = calloc(1, sizeof(nbnet_io_event_part));
+    ptr->tid = self();
+    index_hash_put(nbnet_fdtbl, sockfd, (uintptr_t) ptr);
     ioctl(sockfd, FIONBIO, &flag);
   }
 
@@ -117,41 +164,34 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     return rc;
   }
 
-  yield();
+  if (nbnet_mode == NBNET_AUTO_NONBLOCK) {
+    pth_yield(NULL);
 
-  for ( ;; ) {
-    struct pollfd fds[] = {
-      {sockfd, POLLOUT | POLLIN, 0}
-    };
+    for ( ;; ) {
+      struct pollfd fds[] = {
+        {sockfd, POLLOUT | POLLIN, 0}
+      };
 
-    int n = poll(fds, 1, 0);
-    if (n > 0) {
-      int err = 0;
-      socklen_t len = sizeof(err);
-
-      /* BSDs and Linux return 0, and set a pending error in err
-       * Solaris return -1, and sets errno */
-      if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, (void *) &err, &len) == -1) {
-        err = errno;
-      }
-
-      if (err) {
-        errno = err;
+      int n = poll(fds, 1, 0);
+      if (n > 0) {
+        CONNECT_FINISH(sockfd);
+      } else if ( n < 0) {
         return -1;
-      } else {
-        return 0;
       }
-    } else if ( n < 0) {
-      return -1;
-    }
     
-    yield();
-  }
+      pth_yield(NULL);
+    }
+  } else {
+    yield(ptr, NBNET_EVENT_READ | NBNET_EVENT_WRITE);
+    ptr->event = 0;
+    CONNECT_FINISH(sockfd);
+  }    
 }
 
 ssize_t read(int fd, void *buf, size_t count)
 {
-  if (sysfd(fd)) {
+  nbnet_io_event_part *ptr;
+  if (sysfd(ptr, fd)) {
     return sys_read(fd, buf, count);
   }
 
@@ -160,16 +200,17 @@ ssize_t read(int fd, void *buf, size_t count)
     if (nn < 0) {
       if (errno != EAGAIN) return nn;
     } else {
+      ptr->event = 0;
       return nn;
     }
-    
-    yield();
+    yield_read(ptr);
   }
 }
       
 ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
 {
-  if (sysfd(fd)) {
+  nbnet_io_event_part *ptr;
+  if (sysfd(ptr, fd)) {
     return sys_readv(fd, iov, iovcnt);
   }
 
@@ -178,16 +219,17 @@ ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
     if (nn < 0) {
       if (errno != EAGAIN) return nn;
     } else {
+      ptr->event = 0;
       return nn;
     }
-
-    yield();
+    yield_read(ptr);
   }
 }
 
 ssize_t recv(int sockfd, void *buf, size_t len, int flags)
 {
-  if (sysfd(sockfd)) {
+  nbnet_io_event_part *ptr;
+  if (sysfd(ptr, sockfd)) {
     return sys_recv(sockfd, buf, len, flags);
   }
 
@@ -196,17 +238,18 @@ ssize_t recv(int sockfd, void *buf, size_t len, int flags)
     if (nn < 0) {
       if (errno != EAGAIN) return nn;
     } else {
+      ptr->event = 0;
       return nn;
     }
-
-    yield();
+    yield_read(ptr);
   }
 }
 
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                  struct sockaddr *src_addr, socklen_t *addrlen)
 {
-  if (sysfd(sockfd)) {
+  nbnet_io_event_part *ptr;
+  if (sysfd(ptr, sockfd)) {
     return sys_recvfrom(sockfd, buf, len, flags, src_addr, addrlen);
   }
   
@@ -215,16 +258,17 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     if (nn < 0) {
       if (errno != EAGAIN) return nn;
     } else {
+      ptr->event = 0;
       return nn;
     }
-
-    yield();
+    yield_read(ptr);
   }
 }
 
 ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags)
 {
-  if (sysfd(sockfd)) {
+  nbnet_io_event_part *ptr;
+  if (sysfd(ptr, sockfd)) {
     return sys_recvmsg(sockfd, msg, flags);
   }
   
@@ -233,17 +277,18 @@ ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags)
     if (nn < 0) {
       if (errno != EAGAIN) return nn;
     } else {
+      ptr->event = 0;
       return nn;
     }
-
-    yield();
+    yield_read(ptr);
   }
 }
 
       
 ssize_t write(int fd, const void *buf, size_t count)
 {
-  if (sysfd(fd)) {
+  nbnet_io_event_part *ptr;
+  if (sysfd(ptr, fd)) {
     return sys_write(fd, buf, count);
   }
 
@@ -252,16 +297,17 @@ ssize_t write(int fd, const void *buf, size_t count)
     if (nn < 0) {
       if (errno != EAGAIN) return nn;
     } else {
+      ptr->event = 0;
       return nn;
     }
-
-    yield();
+    yield_write(ptr);
   }
 }
 
 ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 {
-  if (sysfd(fd)) {
+  nbnet_io_event_part *ptr;
+  if (sysfd(ptr, fd)) {
     return sys_writev(fd, iov, iovcnt);
   }
 
@@ -270,16 +316,17 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     if (nn < 0) {
       if (errno != EAGAIN) return nn;
     } else {
+      ptr->event = 0;
       return nn;
     }
-
-    yield();
+    yield_write(ptr);
   }
 }
 
 ssize_t send(int sockfd, const void *buf, size_t len, int flags)
 {
-  if (sysfd(sockfd)) {
+  nbnet_io_event_part *ptr;
+  if (sysfd(ptr, sockfd)) {
     return sys_send(sockfd, buf, len, flags);
   }
 
@@ -288,17 +335,18 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags)
     if (nn < 0) {
       if (errno != EAGAIN) return nn;
     } else {
+      ptr->event = 0;
       return nn;
     }
-
-    yield();
+    yield_write(ptr);
   }
 }
 
 ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
                const struct sockaddr *dest_addr, socklen_t addrlen)
 {
-  if (sysfd(sockfd)) {
+  nbnet_io_event_part *ptr;
+  if (sysfd(ptr, sockfd)) {
     return sys_sendto(sockfd, buf, len, flags, dest_addr, addrlen);
   }
 
@@ -307,16 +355,17 @@ ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
     if (nn <  0) {
       if (errno != EAGAIN) return nn;
     } else {
+      ptr->event = 0;
       return nn;
     }
-
-    yield();
+    yield_write(ptr);
   }
 }
 
 ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags)
 {
-  if (sysfd(sockfd)) {
+  nbnet_io_event_part *ptr;
+  if (sysfd(ptr, sockfd)) {
     return sys_sendmsg(sockfd, msg, flags);
   }
 
@@ -327,13 +376,16 @@ ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags)
     } else {
       return nn;
     }
-
-    yield();
+    yield_write(ptr);
   }
 }
 
 int close(int fd)
 {
-  index_hash_del(nbnet_fdtbl, fd);
+  nbnet_io_event_part *ptr = (void *) index_hash_del(nbnet_fdtbl, fd);
+  if (ptr != (void *) INDEX_HASH_VAL_NIL) {
+    free(ptr);
+  }
+  
   return sys_close(fd);
 }
