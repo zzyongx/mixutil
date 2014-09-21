@@ -29,7 +29,7 @@ typedef struct {
 index_hash_t *index_hash_init(uint32_t size);
 uintptr_t     index_hash_get(index_hash_t *hash, uint32_t key);
 void          index_hash_put(index_hash_t *hash, uint32_t key, uintptr_t val);
-void          index_hash_del(index_hash_t *hash, uint32_t key);
+uintptr_t     index_hash_del(index_hash_t *hash, uint32_t key);
 void          index_hash_destroy(index_hash_t *hash);
 
 #define index_hash_size(hash) hash->nitem

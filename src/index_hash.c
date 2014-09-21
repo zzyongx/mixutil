@@ -113,18 +113,19 @@ void index_hash_put(index_hash_t *hash, uint32_t key, uintptr_t val)
   index_hash_put_internal(hash, key, val);
 }
 
-void index_hash_del(index_hash_t *hash, uint32_t key)
+uintptr_t index_hash_del(index_hash_t *hash, uint32_t key)
 {
   uint32_t idx = HASH(key, hash->nslot);
   for (uint32_t i = 0; i < hash->depth; i++) {
     if (hash->slot[idx].key == key) {
       hash->nitem--;
       hash->slot[idx].key = NIL;
-      return;
+      return hash->slot[idx].val;
     } else {
       idx = NEXT_SLOT(idx, hash->nslot);
     }
   }
+  return INDEX_HASH_VAL_NIL;
 }
 
 void index_hash_destroy(index_hash_t *hash)
