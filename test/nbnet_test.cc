@@ -78,7 +78,7 @@ void NbNetTest::mysql_handler_(void *data)
   mysql_close(db);
 }
 
-int nbnet_block_ctl(int);
+extern "C" int nbnet_block_ctl(int);
 
 void mysql_()
 {

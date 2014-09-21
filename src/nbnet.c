@@ -15,6 +15,8 @@
 #include <mixutil/index_hash.h>
 
 #define yield() pth_yield(NULL)
+#define self()  pth_self()
+
 #define sysfd(fd)       \
   (nbnet_block_flag ||  \
    index_hash_get(nbnet_fdtbl, fd) == INDEX_HASH_VAL_NIL)
@@ -54,10 +56,12 @@ ssize_t (*sys_send)(int, const void*, size_t, int) = 0;
 ssize_t (*sys_sendto)(int, const void*, size_t, int, const struct sockaddr*, socklen_t) = 0;
 ssize_t (*sys_sendmsg)(int, const struct msghdr*, int) = 0;
 
+int (*sys_close)(int) = 0;
+
 int nbnet_init() __attribute__((constructor));
 int nbnet_init()
 {
-  nbnet_fdtbl = index_hash_init(2048);
+  nbnet_fdtbl = index_hash_init(256);
   
   void *handle = dlopen("libc.so.6", RTLD_NOW);
   if (!handle) {
@@ -81,6 +85,8 @@ int nbnet_init()
     {"send",     (void **) &sys_send},
     {"sendto",   (void **) &sys_sendto},
     {"sendmsg",  (void **) &sys_sendmsg},
+
+    {"close",    (void **) &sys_close},
     {NULL, NULL}
   };
 
@@ -98,7 +104,7 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 {
   if (nbnet_block_flag == 0) {
     int flag = 1;
-    index_hash_put(nbnet_fdtbl, sockfd, 1);
+    index_hash_put(nbnet_fdtbl, sockfd, (uintptr_t) self());
     ioctl(sockfd, FIONBIO, &flag);
   }
 
@@ -324,4 +330,10 @@ ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags)
 
     yield();
   }
+}
+
+int close(int fd)
+{
+  index_hash_del(nbnet_fdtbl, fd);
+  return sys_close(fd);
 }

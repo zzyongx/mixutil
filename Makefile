@@ -56,16 +56,17 @@ build/%.o: src/%.c
 
 .PHONY: test
 TEST_OBJS = build/util_test.o build/logger_test.o build/index_hash_test.o
-TEST_LDFLAGS = -lgtest -lgtest_main -lpthread -lmysqlclient -L/usr/lib/mysql -lnbnet -L./build
+TEST_LDFLAGS = -lgtest -lgtest_main -lpthread
+TEST_NBNET_LDFLAGS = -lmysqlclient -L/usr/lib/mysql -lnbnet -L./build
 TEST_CXXFLAGS = -std=c++0x
 
 build-test: configtest $(TEST_OBJS) $(OBJS) build/nbnet_test.o build-nbnet
 	$(CXX) -o ./build/runtest $(TEST_OBJS) $(OBJS) $(TEST_LDFLAGS)
-	$(CXX) -o ./build/nbnet_test build/nbnet_test.o $(OBJS) $(LDFLAGS) $(TEST_LDFLAGS)
+	$(CXX) -o ./build/nbnet_test build/nbnet_test.o $(OBJS) $(LDFLAGS) $(TEST_LDFLAGS) $(TEST_NBNET_LDFLAGS)
 
-test: buildtest
+test: build-test
 	./build/runtest
-	LD_PRELOAD=./build/libnbnet.so ./build/nbnet_test
+	LD_PRELOAD=$PWD/build/libnbnet.so LD_LIBRARY_PATH=$PWD/build ./build/nbnet_test
 
 build/%.o: test/%.cc
 	$(CXX) -o $@ $(WARN) $(CXXWARN) $(CXXFLAGS) $(PREDEF) $(TEST_CXXFLAGS) -c $<

@@ -28,6 +28,7 @@ index_hash_t *index_hash_init(uint32_t size)
   index_hash_t *hash = malloc(sizeof(index_hash_t));
   hash->nitem = 0;
   hash->nslot = size;
+  hash->depth = 1;
   
   hash->slot = malloc(sizeof(item_t) * size);
   for (uint32_t i = 0; i < size; ++i) {
@@ -43,7 +44,7 @@ uintptr_t index_hash_get(index_hash_t *hash, uint32_t key)
   INC_GET(hash);
   
   uint32_t idx = HASH(key, hash->nslot);
-  for (uint32_t i = 0; i < hash->nslot; i++) {
+  for (uint32_t i = 0; i < hash->depth; i++) {
     INC_ITE(hash);
     if (hash->slot[idx].key == key) {
       return hash->slot[idx].val;
@@ -70,14 +71,18 @@ static void index_hash_put_internal(index_hash_t *hash, uint32_t key, uintptr_t 
     SWAP(uintptr_t, hash->slot[idx].val, val);
     return index_hash_put_internal(hash, key, val);
   } else {
+    uint32_t depth = 2;
     idx = NEXT_SLOT(idx, hash->nslot);
     for (uint32_t i = 1; i < hash->nslot; ++i) {
       if (hash->slot[idx].key == NIL) {
         hash->slot[idx].key = key;
         hash->slot[idx].val = val;
+        
+        if (depth > hash->depth) hash->depth = depth;        
         return;
       } else {
         idx = NEXT_SLOT(idx, hash->nslot);
+        depth++;
       }
     }
   }
@@ -91,7 +96,8 @@ void index_hash_put(index_hash_t *hash, uint32_t key, uintptr_t val)
 
     item_t *slot   = hash->slot;
     uint32_t nslot = hash->nslot;
-    
+
+    hash->depth = 1;
     hash->nslot *= 2;
     hash->slot = malloc(sizeof(item_t) * hash->nslot);
     for (uint32_t i = 0; i < hash->nslot; ++i) {
@@ -110,7 +116,7 @@ void index_hash_put(index_hash_t *hash, uint32_t key, uintptr_t val)
 void index_hash_del(index_hash_t *hash, uint32_t key)
 {
   uint32_t idx = HASH(key, hash->nslot);
-  for (uint32_t i = 0; i < hash->nslot; i++) {
+  for (uint32_t i = 0; i < hash->depth; i++) {
     if (hash->slot[idx].key == key) {
       hash->nitem--;
       hash->slot[idx].key = NIL;

@@ -78,7 +78,7 @@ TEST(IndexHashTest, hashexpand) {
     ASSERT_EQ(index_hash_get(hash, array[i]), array[i]);
   }
 }
-  
+
 TEST(IndexHashTest, performance) {
   const int N = 1e7;
   int *array = new int[N];
@@ -103,7 +103,7 @@ TEST(IndexHashTest, performance) {
   start = time(0);
   for (int i = 0; i < 5; ++i) {
     for (int j = 0; j < N; ++j) {
-      hash_map.find(array[j]);
+      ASSERT_TRUE(hash_map.find(array[j]) != hash_map.end());
     }
   }
   std::cout << "hash_map get: " << time(0) - start << "s\n";
@@ -111,10 +111,31 @@ TEST(IndexHashTest, performance) {
   start = time(0);
   for (int i = 0; i < 5; ++i) {
     for (int j = 0; j < N; ++j) {
-      index_hash_get(hash, array[i]);
+      ASSERT_EQ(index_hash_get(hash, array[i]), array[i]);
     }
   }
   std::cout << "index_hash get: " << time(0) - start << "s\n";
+
+  start = time(0);
+  for (int i = 0; i < 5; ++i) {
+    for (int j = 0; j < N; ++j) {
+      hash_map.find(array[j]+1);
+    }
+  }
+  std::cout << "hash_map get miss: " << time(0) - start << "s\n";
+
+  start = time(0);
+  for (int i = 0; i < 5; ++i) {
+    for (int j = 0; j < N; ++j) {
+      index_hash_get(hash, array[i]+1);
+    }
+  }
+  std::cout << "index_hash get miss: " << time(0) - start << "s\n";
+
+  std::cout << "index_hash status\n"
+            << "nitem: " << hash->nitem << "\n"
+            << "nslot: " << hash->nslot << "\n"
+            << "depth: " << hash->depth << "\n";
   
   delete[] array;
 }

@@ -13,6 +13,7 @@ struct index_hash_item_t {
 
 typedef struct {
   uint32_t   nitem;
+  uint32_t   depth;
   uint32_t   nslot;
   struct index_hash_item_t *slot;
 
